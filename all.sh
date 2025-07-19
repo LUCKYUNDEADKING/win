@@ -5,6 +5,8 @@ GREEN="\033[0;32m"
 RED="\033[0;31m"
 NC="\033[0m"
 
+REPO="UJX6N/bbrplus-6.x_stable"
+
 function log() {
   echo -e "${GREEN}[INFO] $1${NC}"
 }
@@ -13,41 +15,41 @@ function error() {
   exit 1
 }
 
-# 1. 安装必要依赖
-log "更新系统并安装必要依赖..."
+log "安装依赖..."
 sudo apt update
-sudo apt install -y build-essential dkms linux-headers-$(uname -r) wget
+sudo apt install -y wget curl jq dkms build-essential linux-headers-$(uname -r)
 
-# 2. 下载高版本 BBRPlus 内核包 (6.4.16-bbrplus)
-KERNEL_VER="6.4.16-bbrplus"
-BASE_URL="https://github.com/UJX6N/bbrplus-6.x_stable/releases/download/${KERNEL_VER}"
+log "获取GitHub最新发布版本..."
+LATEST_VERSION=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | jq -r .tag_name)
+if [ -z "$LATEST_VERSION" ]; then
+  error "无法获取最新版本号"
+fi
+log "最新版本：$LATEST_VERSION"
 
-KERNEL_IMG="linux-image-${KERNEL_VER}-amd64.deb"
-KERNEL_HEADERS="linux-headers-${KERNEL_VER}-amd64.deb"
+BASE_URL="https://github.com/$REPO/releases/download/$LATEST_VERSION"
 
-log "下载内核包 ${KERNEL_IMG} ..."
-wget -q --show-progress -O "$KERNEL_IMG" "${BASE_URL}/${KERNEL_IMG}" || error "下载内核包失败"
+KERNEL_IMG="linux-image-${LATEST_VERSION}-amd64.deb"
+KERNEL_HEADERS="linux-headers-${LATEST_VERSION}-amd64.deb"
 
-log "下载内核头文件包 ${KERNEL_HEADERS} ..."
-wget -q --show-progress -O "$KERNEL_HEADERS" "${BASE_URL}/${KERNEL_HEADERS}" || error "下载头文件包失败"
+log "下载内核包 $KERNEL_IMG"
+wget -q --show-progress -O "$KERNEL_IMG" "$BASE_URL/$KERNEL_IMG" || error "下载内核包失败"
 
-# 3. 安装内核和头文件
+log "下载内核头文件包 $KERNEL_HEADERS"
+wget -q --show-progress -O "$KERNEL_HEADERS" "$BASE_URL/$KERNEL_HEADERS" || error "下载内核头文件包失败"
+
 log "安装内核包..."
-sudo dpkg -i "$KERNEL_IMG" || error "内核包安装失败"
+sudo dpkg -i "$KERNEL_IMG" || error "安装内核包失败"
 
 log "安装内核头文件包..."
-sudo dpkg -i "$KERNEL_HEADERS" || error "内核头文件安装失败"
+sudo dpkg -i "$KERNEL_HEADERS" || error "安装内核头文件包失败"
 
-# 4. 更新 grub
-log "更新 grub 配置..."
+log "更新grub..."
 sudo update-grub
 
-# 5. 设置默认拥塞控制算法为 bbrplus
-log "设置默认 TCP 拥塞控制算法为 bbrplus..."
+log "设置默认TCP拥塞控制为bbrplus..."
 sudo sysctl -w net.core.default_qdisc=fq
 sudo sysctl -w net.ipv4.tcp_congestion_control=tcp_bbrplus
 
-# 6. 校验当前生效算法
 current_cc=$(cat /proc/sys/net/ipv4/tcp_congestion_control)
 if [ "$current_cc" == "tcp_bbrplus" ]; then
   log "成功启用 TCP 拥塞控制算法 tcp_bbrplus！"
@@ -55,4 +57,4 @@ else
   error "启用 tcp_bbrplus 失败，当前算法为 $current_cc"
 fi
 
-log "安装完成。请重启系统以启用新内核：sudo reboot"
+log "完成，建议重启以应用新内核：sudo reboot"
